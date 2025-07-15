@@ -17,6 +17,13 @@ WITHDRAWAL_DST_TIMELOCK=$(jq -r '.withdrawalDstTimelock' "$CONFIG_PATH")
 CANCELLATION_SRC_TIMELOCK=$(jq -r '.cancellationSrcTimelock' "$CONFIG_PATH")
 CANCELLATION_DST_TIMELOCK=$(jq -r '.cancellationDstTimelock' "$CONFIG_PATH")
 
+echo -n "Do you want to rebuild project? Otherwise it will rebuild automatically if necessary [y/n]: "
+read response
+if [[ "$response" == "y" || "$response" == "Y" ]]; then
+    forge clean
+    forge build
+fi
+
 # Start anvil if local
 if [[ "$CHAIN_ID" == "31337" ]]; then
   echo "Launching anvil with fork from $RPC_URL and block-time 1..."
@@ -31,13 +38,6 @@ fi
 
 # Read stages array from config.json
 STAGES=($(jq -r '.stages[]' "$CONFIG_PATH"))
-
-echo -n "Do you want to rebuild project? Otherwise it will rebuild automatically if necessary [y/n]: "
-read response
-if [[ "$response" == "y" || "$response" == "Y" ]]; then
-    forge clean
-    forge build
-fi
 
 ANVIL_DEPLOY_SRC_TIMESTAMP=$ANVIL_START_TIMESTAMP
 ANVIL_DEPLOY_DST_TIMESTAMP=$ANVIL_START_TIMESTAMP

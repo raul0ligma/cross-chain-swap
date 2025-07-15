@@ -4,13 +4,13 @@ pragma solidity 0.8.23;
 
 import {Vm} from "forge-std/Vm.sol";
 import {stdJson} from "forge-std/StdJson.sol";
-import {StdCheatsSafe} from "forge-std/StdCheats.sol";
-import {console} from "forge-std/console.sol";
 import {StringUtils} from "./StringUtils.sol";
 
 library DevOpsTools {
     using stdJson for string;
     using StringUtils for string;
+
+    error NoDeploymentArtifactsFound();
 
     struct Receipt {
         address contractAddress;
@@ -19,15 +19,16 @@ library DevOpsTools {
         uint256 timestamp;
     }
 
+    // solhint-disable const-name-snakecase
     Vm public constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     string public constant RELATIVE_BROADCAST_PATH = "./broadcast";
 
-    function get_most_recent_deployment(string memory contractName, string memory arg, uint256 chainId) internal view returns (address) {
-        return get_most_recent_deployment(contractName, arg, chainId, RELATIVE_BROADCAST_PATH);
+    function getMostRecentDeployment(string memory contractName, string memory arg, uint256 chainId) internal view returns (address) {
+        return getMostRecentDeployment(contractName, arg, chainId, RELATIVE_BROADCAST_PATH);
     }
 
-    function get_most_recent_deployment(
+    function getMostRecentDeployment(
         string memory contractName,
         string memory arg,
         uint256 chainId,
@@ -72,7 +73,7 @@ library DevOpsTools {
         }
 
         if (!runProcessed) {
-            revert("No deployment artifacts were found for specified chain");
+            revert NoDeploymentArtifactsFound();
         }
 
         if (latestAddress != address(0)) {
@@ -122,7 +123,7 @@ library DevOpsTools {
         return latestAddress;
     }
 
-    function get_most_recent_log(
+    function getMostRecentLog(
         address contractAddress, 
         bytes32 topic,
         uint256 chainId,
@@ -171,7 +172,7 @@ library DevOpsTools {
         }
 
         if (!runProcessed) {
-            revert("No deployment artifacts were found for specified chain");
+            revert NoDeploymentArtifactsFound();
         }
 
         if (latestReceipt.timestamp != 0) {
@@ -218,7 +219,13 @@ library DevOpsTools {
         return latestReceipt;
     }
 
-    function _parseLatestReceipt(string memory json, address contractAddress, bytes32 topic, string memory logPath, Receipt memory latestReceipt) 
+    function _parseLatestReceipt(
+        string memory json, 
+        address contractAddress, 
+        bytes32 topic, 
+        string memory logPath, 
+        Receipt memory latestReceipt
+    ) 
         internal
         pure
         returns (Receipt memory)

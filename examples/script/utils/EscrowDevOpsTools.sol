@@ -10,6 +10,12 @@ import { DevOpsTools } from "./DevOpsTools.sol";
 import { Config } from "./ConfigLib.sol";
 
 library EscrowDevOpsTools {
+    error NoSrcEscrowCreatedEventFound();
+    error NoDstEscrowCreatedEventFound();
+    error NoTransferEventFoundForSrcToken();
+    error NoOrderFilledEventFound();
+    error OutOfBounds();
+
     string public constant RELATIVE_BROADCAST_PATH = "./broadcast/CreateOrder.s.sol";
 
     bytes32 public constant ORDER_FILLED_EVENT_SIGNATURE = 0xfec331350fce78ba658e082a71da20ac9f8d798a99b3c79681c8440cbfe77e07;
@@ -22,7 +28,7 @@ library EscrowDevOpsTools {
             return config.resolver;
         }
 
-        address contractAddress = DevOpsTools.get_most_recent_deployment(
+        address contractAddress = DevOpsTools.getMostRecentDeployment(
             "ResolverExample", "", block.chainid, RELATIVE_BROADCAST_PATH);
         return contractAddress;
     }
@@ -40,13 +46,13 @@ library EscrowDevOpsTools {
             return token;
         }
 
-        address contractAddress = DevOpsTools.get_most_recent_deployment(
+        address contractAddress = DevOpsTools.getMostRecentDeployment(
             "TokenCustomDecimalsMock", ERC20(token).name(), block.chainid, RELATIVE_BROADCAST_PATH);
         return contractAddress;
     }
 
     function getEscrowSrcAddressAndTimestamp(address srcToken) internal view returns(address, uint256) {
-        DevOpsTools.Receipt memory receipt = DevOpsTools.get_most_recent_log(
+        DevOpsTools.Receipt memory receipt = DevOpsTools.getMostRecentLog(
             srcToken, 
             TRANSFER_EVENT_SIGNATURE, 
             block.chainid, 
@@ -54,14 +60,14 @@ library EscrowDevOpsTools {
         );
 
         if (receipt.topics.length < 3) {
-            revert("No Transfer event found for src token");
+            revert NoTransferEventFoundForSrcToken();
         }
 
         return (address(uint160(uint256(receipt.topics[2]))), receipt.timestamp);
     }
 
     function getOrderHashAndTimelocksFromSrcEscrowCreatedEvent(Config memory config) internal view returns(bytes32 orderHash, Timelocks) {
-        DevOpsTools.Receipt memory receipt = DevOpsTools.get_most_recent_log(
+        DevOpsTools.Receipt memory receipt = DevOpsTools.getMostRecentLog(
             config.escrowFactory, 
             SRC_ESCROW_CREATED_EVENT_SIGNATURE, 
             block.chainid, 
@@ -69,14 +75,14 @@ library EscrowDevOpsTools {
         );
 
         if (receipt.data.length < 256) {
-            revert("No SrcEscrowCreated event found");
+            revert NoSrcEscrowCreatedEventFound();
         }
 
         return (toBytes32(receipt.data, 0), Timelocks.wrap(uint256(toBytes32(receipt.data, 224))));
     }
 
     function getEscrowDstAddressAndDeployTimeFromDstEscrowCreatedEvent(Config memory config) internal view returns(address, uint256) {
-        DevOpsTools.Receipt memory receipt = DevOpsTools.get_most_recent_log(
+        DevOpsTools.Receipt memory receipt = DevOpsTools.getMostRecentLog(
             config.escrowFactory, 
             DST_ESCROW_CREATED_EVENT_SIGNATURE, 
             block.chainid, 
@@ -84,14 +90,14 @@ library EscrowDevOpsTools {
         );
 
         if (receipt.data.length < 96) {
-            revert("No DstEscrowCreated event found");
+            revert NoDstEscrowCreatedEventFound();
         }
 
         return (address(uint160(uint256(toBytes32(receipt.data, 0)))), receipt.timestamp);
     }
 
     function getOrderHash(Config memory config) internal view returns(bytes32) {
-        DevOpsTools.Receipt memory receipt = DevOpsTools.get_most_recent_log(
+        DevOpsTools.Receipt memory receipt = DevOpsTools.getMostRecentLog(
             config.limitOrderProtocol, 
             ORDER_FILLED_EVENT_SIGNATURE, 
             block.chainid, 
@@ -99,14 +105,16 @@ library EscrowDevOpsTools {
         );
 
         if (receipt.data.length < 32) {
-            revert("No OrderFilled event found");
+            revert NoOrderFilledEventFound();
         }
 
         return toBytes32(receipt.data, 0);
     }
 
     function toBytes32(bytes memory data, uint256 offset) internal pure returns (bytes32 result) {
-        require(data.length >= offset + 32, "Out of bounds");
+        if (data.length < offset + 32) {
+            revert OutOfBounds();
+        }
         assembly {
             result := mload(add(add(data, 32), offset))
         }

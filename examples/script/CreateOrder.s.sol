@@ -8,7 +8,6 @@ import { ERC20 } from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import { Script } from "forge-std/Script.sol";
 
 import { IFeeBank } from "limit-order-settlement/contracts/interfaces/IFeeBank.sol";
-import { FeeBank } from "limit-order-settlement/contracts/FeeBank.sol";
 import { IOrderMixin } from "limit-order-protocol/contracts/interfaces/IOrderMixin.sol";
 import { TakerTraits } from "limit-order-protocol/contracts/libraries/TakerTraitsLib.sol";
 
@@ -17,7 +16,6 @@ import { Address } from "solidity-utils/contracts/libraries/AddressLib.sol";
 
 import { Timelocks, TimelocksLib } from "contracts/libraries/TimelocksLib.sol";
 import { BaseEscrowFactory } from "contracts/BaseEscrowFactory.sol";
-import { EscrowSrc } from "contracts/EscrowSrc.sol";
 import { ResolverExample } from "contracts/mocks/ResolverExample.sol";
 import { IResolverExample } from "contracts/interfaces/IResolverExample.sol";
 import { IEscrowFactory } from "contracts/interfaces/IEscrowFactory.sol";
@@ -29,10 +27,12 @@ import { TimelocksSettersLib } from "test/utils/libraries/TimelocksSettersLib.so
 import { Config, ConfigLib } from "./utils/ConfigLib.sol";
 import { EscrowDevOpsTools } from "./utils/EscrowDevOpsTools.sol";
 
-import "forge-std/console.sol";
+// solhint-disable no-console
+import { console } from "forge-std/console.sol";
 
 contract CreateOrder is Script {
     error NativeTokenTransferFailure();
+    error InvalidMode();
 
     enum Mode {
         cancel,
@@ -40,8 +40,8 @@ contract CreateOrder is Script {
     }
     
     mapping(uint256 => address) public FEE_TOKEN; // solhint-disable-line var-name-mixedcase
-    BaseEscrowFactory internal escrowFactory;
-    IFeeBank internal feeBank;
+    BaseEscrowFactory internal _escrowFactory;
+    IFeeBank internal _feeBank;
 
     function run() external {
         _defineFeeTokens();
@@ -51,8 +51,8 @@ contract CreateOrder is Script {
 
         Config memory config = ConfigLib.getConfig(vm, path);
 
-        escrowFactory = BaseEscrowFactory(config.escrowFactory);
-        feeBank = IFeeBank(escrowFactory.FEE_BANK());
+        _escrowFactory = BaseEscrowFactory(config.escrowFactory);
+        _feeBank = IFeeBank(_escrowFactory.FEE_BANK());
 
         string memory mode = vm.envString("MODE");
 
@@ -265,7 +265,7 @@ contract CreateOrder is Script {
         } else if (mode == Mode.withdraw) {
             data[0] = abi.encodeWithSelector(IBaseEscrow(escrow).withdraw.selector, secret, immutables);
         } else {
-            revert("Invalid mode");
+            revert InvalidMode();
         }
 
         vm.startBroadcast(uint256(config.deployerPK));
@@ -292,7 +292,7 @@ contract CreateOrder is Script {
             timelocks: timelocks
         });
 
-        address escrow = IEscrowFactory(escrowFactory).addressOfEscrowSrc(immutables);
+        address escrow = IEscrowFactory(_escrowFactory).addressOfEscrowSrc(immutables);
 
         address[] memory targets = new address[](1);
         bytes[] memory data = new bytes[](1);
@@ -303,7 +303,7 @@ contract CreateOrder is Script {
         } else if (mode == Mode.withdraw) {
             data[0] = abi.encodeWithSelector(IBaseEscrow(escrow).withdraw.selector, secret, immutables);
         } else {
-            revert("Invalid mode");
+            revert InvalidMode();
         }
 
         vm.startBroadcast(uint256(config.deployerPK));
@@ -320,9 +320,9 @@ contract CreateOrder is Script {
         address[] memory targets = new address[](2);
         bytes[] memory arguments = new bytes[](2);
         targets[0] = feeToken;
-        targets[1] = address(feeBank);
-        arguments[0] = abi.encodePacked(IERC20(feeToken).approve.selector, abi.encode(address(feeBank), 10 ether));
-        arguments[1] = abi.encodePacked(feeBank.deposit.selector, abi.encode(10 ether));
+        targets[1] = address(_feeBank);
+        arguments[0] = abi.encodePacked(IERC20(feeToken).approve.selector, abi.encode(address(_feeBank), 10 ether));
+        arguments[1] = abi.encodePacked(_feeBank.deposit.selector, abi.encode(10 ether));
 
         vm.startBroadcast(uint256(config.deployerPK));
         IResolverExample(resolver).arbitraryCalls(targets, arguments);
@@ -413,8 +413,8 @@ contract CreateOrder is Script {
         }
 
         vm.startBroadcast(uint256(config.deployerPK));
-        IResolverExample resolver = new ResolverExample(
-            IEscrowFactory(escrowFactory),
+        new ResolverExample(
+            IEscrowFactory(_escrowFactory),
             IOrderMixin(config.limitOrderProtocol),
             config.deployer
         );
