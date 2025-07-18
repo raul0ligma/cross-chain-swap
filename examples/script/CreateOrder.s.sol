@@ -7,7 +7,6 @@ import { ERC20 } from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 
 import { Script } from "forge-std/Script.sol";
 
-import { IFeeBank } from "limit-order-settlement/contracts/interfaces/IFeeBank.sol";
 import { IOrderMixin } from "limit-order-protocol/contracts/interfaces/IOrderMixin.sol";
 import { TakerTraits } from "limit-order-protocol/contracts/libraries/TakerTraitsLib.sol";
 
@@ -41,7 +40,9 @@ contract CreateOrder is Script {
     
     mapping(uint256 => address) public FEE_TOKEN; // solhint-disable-line var-name-mixedcase
     BaseEscrowFactory internal _escrowFactory;
-    IFeeBank internal _feeBank;
+    uint256 internal _deployerPK;
+    uint256 internal _makerPK;
+
 
     function run() external {
         _defineFeeTokens();
@@ -52,7 +53,9 @@ contract CreateOrder is Script {
         Config memory config = ConfigLib.getConfig(vm, path);
 
         _escrowFactory = BaseEscrowFactory(config.escrowFactory);
-        _feeBank = IFeeBank(_escrowFactory.FEE_BANK());
+
+        _deployerPK = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        _makerPK = vm.envUint("MAKER_PRIVATE_KEY");
 
         string memory mode = vm.envString("MODE");
 
@@ -126,7 +129,7 @@ contract CreateOrder is Script {
                 srcSafetyDeposit: config.safetyDeposit,
                 dstSafetyDeposit: config.safetyDeposit,
                 resolvers: resolvers,
-                resolverFee: config.resolverFee,
+                resolverFee: 0,
                 auctionDetails: CrossChainTestLib.buildAuctionDetails(
                     0, // gasBumpEstimate
                     0, // gasPriceEstimate
@@ -147,7 +150,7 @@ contract CreateOrder is Script {
             IOrderMixin(config.limitOrderProtocol)
         );
 
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(uint256(config.makerPK), swapData.orderHash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_makerPK, swapData.orderHash);
         bytes32 vs = bytes32((uint256(v - 27) << 255)) | s;
 
         (TakerTraits takerTraits, bytes memory args) = CrossChainTestLib.buildTakerTraits(
@@ -161,12 +164,11 @@ contract CreateOrder is Script {
             0 // threshold
         );
         
-        _mintToken(config, srcToken, maker, config.srcAmount);
-        _approveTokens(config.makerPK, srcToken, config.limitOrderProtocol, config.srcAmount);
-        _depositFeeTokensToFeeBank(config, resolver);
-        _sendNativeToken(config, resolver, config.safetyDeposit);
+        _mintToken(srcToken, maker, config.srcAmount);
+        _approveTokens(_makerPK, srcToken, config.limitOrderProtocol, config.srcAmount);
+        _sendNativeToken(resolver, config.safetyDeposit);
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         IResolverExample(resolver).deploySrc(
             swapData.immutables,
             swapData.order,
@@ -209,8 +211,8 @@ contract CreateOrder is Script {
 
         uint256 srcCancellationTimestamp = type(uint32).max;
 
-        _mintToken(config, dstToken, resolver, config.dstAmount);
-        _sendNativeToken(config, resolver, config.safetyDeposit);
+        _mintToken(dstToken, resolver, config.dstAmount);
+        _sendNativeToken(resolver, config.safetyDeposit);
 
         uint256 safetyDeposit = config.safetyDeposit;
         if (dstToken == address(0)) {
@@ -221,12 +223,12 @@ contract CreateOrder is Script {
             targets[0] = dstToken;
             arguments[0] = abi.encodePacked(IERC20(dstToken).approve.selector, abi.encode(config.escrowFactory, config.dstAmount));
 
-            vm.startBroadcast(uint256(config.deployerPK));
+            vm.startBroadcast(uint256(_deployerPK));
             IResolverExample(resolver).arbitraryCalls(targets, arguments);
             vm.stopBroadcast();
         }
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         IResolverExample(resolver).deployDst{ value: safetyDeposit }(
             escrowImmutables,
             srcCancellationTimestamp
@@ -268,7 +270,7 @@ contract CreateOrder is Script {
             revert InvalidMode();
         }
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         IResolverExample(resolver).arbitraryCalls(targets, data);
         vm.stopBroadcast();
     }
@@ -306,31 +308,13 @@ contract CreateOrder is Script {
             revert InvalidMode();
         }
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         IResolverExample(resolver).arbitraryCalls(targets, data);
         vm.stopBroadcast();
     }
 
-    function _depositFeeTokensToFeeBank(Config memory config, address resolver) internal {
-        if (block.chainid != 31337 || config.resolverFee == 0) {
-            return;
-        }
-
-        address feeToken = FEE_TOKEN[block.chainid];
-        address[] memory targets = new address[](2);
-        bytes[] memory arguments = new bytes[](2);
-        targets[0] = feeToken;
-        targets[1] = address(_feeBank);
-        arguments[0] = abi.encodePacked(IERC20(feeToken).approve.selector, abi.encode(address(_feeBank), 10 ether));
-        arguments[1] = abi.encodePacked(_feeBank.deposit.selector, abi.encode(10 ether));
-
-        vm.startBroadcast(uint256(config.deployerPK));
-        IResolverExample(resolver).arbitraryCalls(targets, arguments);
-        vm.stopBroadcast();
-    }
-
-    function _sendNativeToken(Config memory config, address to, uint256 amount) internal {
-        vm.startBroadcast(uint256(config.deployerPK));
+    function _sendNativeToken(address to, uint256 amount) internal {
+        vm.startBroadcast(_deployerPK);
         (bool success,) = to.call{ value: amount }("");
         if (!success) {
             revert NativeTokenTransferFailure();
@@ -338,22 +322,22 @@ contract CreateOrder is Script {
         vm.stopBroadcast();
     }
 
-    function _approveTokens(bytes32 pk, address token, address to, uint256 amount) internal {
+    function _approveTokens(uint256 pk, address token, address to, uint256 amount) internal {
         if (token == address(0) || amount == 0) {
             return;
         }
         
-        vm.startBroadcast(uint256(pk));
+        vm.startBroadcast(pk);
         IERC20(token).approve(to, amount);
         vm.stopBroadcast();
     }
 
-    function _mintToken(Config memory config, address token, address to, uint256 amount) internal {
+    function _mintToken(address token, address to, uint256 amount) internal {
         if (block.chainid != 31337) {
             return;
         }
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         if (token == address(0)) {
             (bool success,) = to.call{ value: amount }("");
             if (!success) {
@@ -393,7 +377,7 @@ contract CreateOrder is Script {
             return tokenAddress;
         }
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         TokenCustomDecimalsMock token = new TokenCustomDecimalsMock(
             ERC20(tokenAddress).name(),
             ERC20(tokenAddress).symbol(), 
@@ -412,7 +396,7 @@ contract CreateOrder is Script {
             return;
         }
 
-        vm.startBroadcast(uint256(config.deployerPK));
+        vm.startBroadcast(uint256(_deployerPK));
         new ResolverExample(
             IEscrowFactory(_escrowFactory),
             IOrderMixin(config.limitOrderProtocol),

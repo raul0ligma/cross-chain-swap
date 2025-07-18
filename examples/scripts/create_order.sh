@@ -1,12 +1,12 @@
 #!/bin/zsh
 
+source .env
+
 CURRENT_DIR=$(dirname "$0")
 CONFIG_PATH="${CURRENT_DIR}/../config/config.json"
 SCRIPT_PATH="${CURRENT_DIR}/../script/CreateOrder.s.sol:CreateOrder"
 
 # Read config values
-RPC_URL=$(jq -r '.rpc_url // .rpcUrl // .RPC_URL // .RPCUrl // empty' "$CONFIG_PATH")
-CHAIN_ID=$(jq -r '.chainId // .chainID // .chain_id // empty' "$CONFIG_PATH")
 if [[ -z "$CHAIN_ID" ]]; then
   CHAIN_ID=31337
 fi
@@ -41,28 +41,29 @@ STAGES=($(jq -r '.stages[]' "$CONFIG_PATH"))
 
 ANVIL_DEPLOY_SRC_TIMESTAMP=$ANVIL_START_TIMESTAMP
 ANVIL_DEPLOY_DST_TIMESTAMP=$ANVIL_START_TIMESTAMP
+TIME_DELTA=5  # Time delta in seconds
 
 for STAGE in "${STAGES[@]}"; do
     # Set next block timestamp for time-dependent stages
     if [[ "$CHAIN_ID" == "31337" ]]; then
         case "$STAGE" in
         withdrawSrc)
-            NEXT_TS=$((ANVIL_DEPLOY_SRC_TIMESTAMP + WITHDRAWAL_SRC_TIMELOCK + 1))
+            NEXT_TS=$((ANVIL_DEPLOY_SRC_TIMESTAMP + WITHDRAWAL_SRC_TIMELOCK + TIME_DELTA))
             echo "Setting next block timestamp for withdrawSrc: $NEXT_TS"
             cast rpc anvil_setNextBlockTimestamp "$NEXT_TS" --rpc-url "$RPC_URL"
             ;;
         withdrawDst)
-            NEXT_TS=$((ANVIL_DEPLOY_DST_TIMESTAMP + WITHDRAWAL_DST_TIMELOCK + 1))
+            NEXT_TS=$((ANVIL_DEPLOY_DST_TIMESTAMP + WITHDRAWAL_DST_TIMELOCK + TIME_DELTA))
             echo "Setting next block timestamp for withdrawDst: $NEXT_TS"
             cast rpc anvil_setNextBlockTimestamp "$NEXT_TS" --rpc-url "$RPC_URL"
             ;;
         cancelSrc)
-            NEXT_TS=$((ANVIL_DEPLOY_SRC_TIMESTAMP + CANCELLATION_SRC_TIMELOCK + 1))
+            NEXT_TS=$((ANVIL_DEPLOY_SRC_TIMESTAMP + CANCELLATION_SRC_TIMELOCK + TIME_DELTA))
             echo "Setting next block timestamp for cancelSrc: $NEXT_TS"
             cast rpc anvil_setNextBlockTimestamp "$NEXT_TS" --rpc-url "$RPC_URL"
             ;;
         cancelDst)
-            NEXT_TS=$((ANVIL_DEPLOY_DST_TIMESTAMP + CANCELLATION_DST_TIMELOCK + 1))
+            NEXT_TS=$((ANVIL_DEPLOY_DST_TIMESTAMP + CANCELLATION_DST_TIMELOCK + TIME_DELTA))
             echo "Setting next block timestamp for cancelDst: $NEXT_TS"
             cast rpc anvil_setNextBlockTimestamp "$NEXT_TS" --rpc-url "$RPC_URL"
             ;;
@@ -89,6 +90,8 @@ for STAGE in "${STAGES[@]}"; do
         echo "Exiting script."
         break
     fi
+
+    sleep 1
 done
 
 # Cleanup

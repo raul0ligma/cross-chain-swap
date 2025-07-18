@@ -7,7 +7,19 @@ This guide explains how to use the `create_order.sh` script to automate the depl
 - [Foundry](https://book.getfoundry.sh/) installed (`anvil`, `forge`, `cast` in your PATH)
 - [jq](https://stedolan.github.io/jq/) installed for JSON parsing
 - A valid `config.json` in `examples/config/` with all required fields (see below)
+- .env file with envirinment variables
 - (Optional) A working Ethereum RPC endpoint for forking
+
+## Environment Variables
+
+In addition to the configuration file, you must create a `.env` file in the project root with the following variables:
+
+- `DEPLOYER_PRIVATE_KEY`: Private key of the deployer account (used for contract deployment and transactions).
+- `MAKER_PRIVATE_KEY`: Private key of the maker account (used for order creation and signing).
+- `CHAIN_ID`: The chain ID to use for deployment (e.g., `31337` for local Anvil, or the target network's chain ID).
+- `RPC_URL`: The Ethereum RPC endpoint URL (used for forking or connecting to the network).
+
+These variables are required for the script to authenticate and interact with the blockchain. Do **not** share your private keys or commit your `.env` file to version control.
 
 ## Configuration
 
@@ -18,16 +30,13 @@ Edit `examples/config/config.json` to set up your deployment parameters. Example
   "escrowFactory": "0x...",         // address of escrow factory contract
   "limitOrderProtocol": "0x...",    // address of limit order protocol contract
   "deployer": "0x...",              // deployer address
-  "deployerPK": "0x...",            // deployer private key
   "maker": "0x...",                 // maker address
-  "makerPK": "0x...",               // maker private key
   "srcToken": "0x...",              // source chain token address
   "dstToken": "0x...",              // destination chain token address
   "resolver": "0x...",              // resolver address
   "srcAmount": 1,                   // source chain amount of srcToken
   "dstAmount": 1,                   // destination chain amount of dstToken
   "safetyDeposit": 1,               // safety deposit (same for src and dst chains)
-  "resolverFee": 0,                 // resolver fee (charged by fee bank)
   "withdrawalSrcTimelock": 300,
   "publicWithdrawalSrcTimelock": 600,
   "cancellationSrcTimelock": 900,
@@ -45,9 +54,7 @@ Edit `examples/config/config.json` to set up your deployment parameters. Example
     "withdrawDst",                  // withdraw tokens on destination chain
     "cancelSrc",                    // cancel order on source chain
     "cancelDst"                     // cancel order on destination chain
-  ],
-  "rpcUrl": "https://your-mainnet-rpc-url",
-  "chainId": 31337
+  ]
 }
 ```
 
