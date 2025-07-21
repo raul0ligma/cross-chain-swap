@@ -9,6 +9,12 @@ evm_version = 'shanghai'
 solc_version = '0.8.23'
 gas_reports = ["EscrowSrc", "EscrowDst", "EscrowFactory", "MerkleStorageInvalidator"]
 
+fs_permissions = [
+    { access = "read", path = "./examples/config/config.json" },
+    { access = "read", path = "./broadcast" },
+    { access = "read", path = "./reports" },
+]
+
 [profile.lite.optimizer_details.yulDetails]
 optimizerSteps = ''
 
