@@ -7,6 +7,7 @@ import { IERC20 } from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol"
 import { Create2 } from "openzeppelin-contracts/contracts/utils/Create2.sol";
 import { Address, AddressLib } from "solidity-utils/contracts/libraries/AddressLib.sol";
 import { SafeERC20 } from "solidity-utils/contracts/libraries/SafeERC20.sol";
+import { console } from "forge-std/console.sol";
 
 import { IOrderMixin } from "limit-order-protocol/contracts/interfaces/IOrderMixin.sol";
 import { MakerTraitsLib, MakerTraits } from "limit-order-protocol/contracts/libraries/MakerTraitsLib.sol";
@@ -17,7 +18,7 @@ import { Timelocks, TimelocksLib } from "./libraries/TimelocksLib.sol";
 
 import { IEscrowFactory } from "./interfaces/IEscrowFactory.sol";
 import { IBaseEscrow } from "./interfaces/IBaseEscrow.sol";
-import { SRC_IMMUTABLES_LENGTH } from "./EscrowFactoryContext.sol";
+import { RESOLVER_VALIDATION_DATA_LENGTH } from "./EscrowFactoryContext.sol";
 import { MerkleStorageInvalidator } from "./MerkleStorageInvalidator.sol";
 
 /**
@@ -64,14 +65,20 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
         uint256 remainingMakingAmount,
         bytes calldata extraData
     ) internal override(ResolverValidationExtension) {
-        uint256 superArgsLength = extraData.length - SRC_IMMUTABLES_LENGTH;
         super._postInteraction(
-            order, extension, orderHash, taker, makingAmount, takingAmount, remainingMakingAmount, extraData[:superArgsLength]
+            order,
+            extension,
+            orderHash,
+            taker,
+            makingAmount,
+            takingAmount,
+            remainingMakingAmount,
+            extraData[:RESOLVER_VALIDATION_DATA_LENGTH]
         );
 
         ExtraDataArgs calldata extraDataArgs;
         assembly ("memory-safe") {
-            extraDataArgs := add(extraData.offset, superArgsLength)
+            extraDataArgs := add(extraData.offset, RESOLVER_VALIDATION_DATA_LENGTH)
         }
 
         bytes32 hashlock;
@@ -101,9 +108,9 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
 
         if (MakerTraits.unwrap(order.makerTraits) & _NON_EVM_ORDER_FLAG != 0) {
             NonEvmDstImmutablesComplement memory immutablesComplement = NonEvmDstImmutablesComplement({
-                maker: extraDataArgs.nonEvmOrderData.dstAddress,
+                maker: extraDataArgs.nonEvmMetadata.dstAddressRaw,
                 amount: takingAmount,
-                token: extraDataArgs.nonEvmOrderData.dstToken,
+                token: extraDataArgs.nonEvmMetadata.dstAddressRaw,
                 // this is always assumed to be in the native token of the dst chain
                 safetyDeposit: extraDataArgs.deposits & type(uint128).max,
                 chainId: extraDataArgs.dstChainId

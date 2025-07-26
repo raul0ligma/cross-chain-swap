@@ -14,9 +14,9 @@ import { IBaseEscrow } from "./IBaseEscrow.sol";
  * @custom:security-contact security@1inch.io
  */
 interface IEscrowFactory {
-    struct NonEvmOrderData {
-        bytes dstAddress;
-        bytes dstToken;
+    struct NonEvmMetadata {
+        bytes32 dstAddressRaw;
+        bytes32 dstTokenRaw;
     }
 
     struct ExtraDataArgs {
@@ -25,7 +25,7 @@ interface IEscrowFactory {
         Address dstToken;
         uint256 deposits;
         Timelocks timelocks;
-        NonEvmOrderData nonEvmOrderData;
+        NonEvmMetadata nonEvmMetadata;
     }
 
     struct DstImmutablesComplement {
@@ -37,9 +37,9 @@ interface IEscrowFactory {
     }
 
     struct NonEvmDstImmutablesComplement {
-        bytes maker;
+        bytes32 maker;
         uint256 amount;
-        bytes token;
+        bytes32 token;
         uint256 safetyDeposit;
         uint256 chainId;
     }

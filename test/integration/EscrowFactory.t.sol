@@ -71,6 +71,64 @@ contract IntegrationEscrowFactoryTest is BaseSetup {
         assertEq(address(swapData.srcClone).balance, srcSafetyDeposit);
     }
 
+    function test_DeployCloneForMakerNonEvmInt() public {
+        bytes32 secret = keccak256("test_secret");
+        uint56 srcAmount = 1000;
+        uint56 dstAmount = 950;
+
+        uint256 srcSafetyDeposit = uint256(srcAmount) * 10 / 100;
+        uint256 dstSafetyDeposit = uint256(dstAmount) * 10 / 100;
+
+        CrossChainTestLib.SwapData memory swapData = _prepareNonEvmDataSrcCustom(
+            keccak256(abi.encode(secret)),
+            srcAmount,
+            dstAmount,
+            srcSafetyDeposit,
+            dstSafetyDeposit,
+            address(0), // receiver
+            false, // fakeOrder
+            false, // allowMultipleFills,
+            IEscrowFactory.NonEvmMetadata({
+                dstAddressRaw: bytes32(0x3ae8da2da84b90c07e84c0a69333b206e1c9d77f595189cf1e788d729c3aa4c7),
+                dstTokenRaw: bytes32(0xb113a994b5024a1671f69f491393ef756596c8a22c5d420b146feed3c3621dfe)
+            })
+        );
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(alice.privateKey, swapData.orderHash);
+        bytes32 vs = bytes32((uint256(v - 27) << 255)) | s;
+
+        (TakerTraits takerTraits, bytes memory args) = CrossChainTestLib.buildTakerTraits(
+            true, // makingAmount
+            false, // unwrapWeth
+            false, // skipMakerPermit
+            false, // usePermit2
+            address(swapData.srcClone), // target
+            swapData.extension, // extension
+            "", // interaction
+            0 // threshold
+        );
+
+        {
+            (bool success,) = address(swapData.srcClone).call{ value: uint64(srcAmount) * 10 / 100 }("");
+            assertEq(success, true);
+            uint256 resolverCredit = feeBank.availableCredit(bob.addr);
+
+            vm.prank(bob.addr);
+            limitOrderProtocol.fillOrderArgs(
+                swapData.order,
+                r,
+                vs,
+                srcAmount, // amount
+                takerTraits,
+                args
+            );
+            assertEq(feeBank.availableCredit(bob.addr), resolverCredit);
+        }
+
+        assertEq(usdc.balanceOf(address(swapData.srcClone)), srcAmount);
+        assertEq(address(swapData.srcClone).balance, srcSafetyDeposit);
+    }
+
     function test_DeployCloneForMakerNonWhitelistedResolverInt() public {
         CrossChainTestLib.SwapData memory swapData = _prepareDataSrc(false, false);
 
@@ -152,7 +210,7 @@ contract IntegrationEscrowFactoryTest is BaseSetup {
     }
 
     function test_NoResolverReentrancy() public {
-        ResolverReentrancy badResolver = new ResolverReentrancy(escrowFactory, limitOrderProtocol, address(this)); 
+        ResolverReentrancy badResolver = new ResolverReentrancy(escrowFactory, limitOrderProtocol, address(this));
         resolvers[0] = address(badResolver);
         vm.deal(address(badResolver), 100 ether);
 
@@ -175,7 +233,6 @@ contract IntegrationEscrowFactoryTest is BaseSetup {
 
         vm.warp(1710288000); // set current timestamp
         (timelocks, timelocksDst) = CrossChainTestLib.setTimelocks(srcTimelocks, dstTimelocks);
-
 
         CrossChainTestLib.SwapData memory swapData = _prepareDataSrcHashlock(rootPlusAmount, false, true);
 
@@ -200,15 +257,7 @@ contract IntegrationEscrowFactoryTest is BaseSetup {
         );
 
         vm.expectRevert(IEscrowFactory.InvalidPartialFill.selector);
-        badResolver.deploySrc(
-            swapData.immutables,
-            swapData.order,
-            r,
-            vs,
-            makingAmount - 2,
-            takerTraits,
-            args
-        );
+        badResolver.deploySrc(swapData.immutables, swapData.order, r, vs, makingAmount - 2, takerTraits, args);
     }
 
     /* solhint-enable func-name-mixedcase */

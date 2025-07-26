@@ -4,6 +4,9 @@ pragma solidity 0.8.23;
 
 import { BaseEscrowFactory } from "../../../contracts/BaseEscrowFactory.sol";
 import { EscrowSrc } from "../../../contracts/EscrowSrc.sol";
+import { IEscrowFactory } from "../../../contracts/interfaces/IEscrowFactory.sol";
+import { console } from "forge-std/console.sol";
+
 import { IBaseEscrow } from "../../../contracts/interfaces/IBaseEscrow.sol";
 import { ERC20True } from "../../../contracts/mocks/ERC20True.sol";
 import { IOrderMixin } from "limit-order-protocol/contracts/interfaces/IOrderMixin.sol";
@@ -90,6 +93,11 @@ library CrossChainTestLib {
         bytes extension;
         EscrowSrc srcClone;
         IBaseEscrow.Immutables immutables;
+    }
+
+    struct NonEvmOrderData {
+        bytes32 dstAddress;
+        bytes32 dstToken;
     }
 
     // Limit order protocol flags
@@ -190,7 +198,8 @@ library CrossChainTestLib {
         bool allowMultipleFills,
         InteractionParams memory interactions,
         bytes memory customData,
-        uint40 nonce
+        uint40 nonce,
+        bool isNonEvmOrder
     ) internal pure returns (IOrderMixin.Order memory, bytes memory) {
         MakerTraitsParams memory makerTraitsParams = MakerTraitsParams({
             allowedSender: address(0),
@@ -202,7 +211,7 @@ library CrossChainTestLib {
             expiry: 0,
             nonce: nonce,
             series: 0,
-            isNonEvmOrder: false
+            isNonEvmOrder: isNonEvmOrder
         });
         bytes[8] memory allInteractions = [
             interactions.makerAssetSuffix,
@@ -270,7 +279,7 @@ library CrossChainTestLib {
         return (order, extension);
     }
 
-    function buidDynamicData(
+    function buildDynamicData(
         bytes32 hashlock,
         uint256 chainId,
         address token,
@@ -281,13 +290,25 @@ library CrossChainTestLib {
         return (abi.encode(hashlock, chainId, token, (srcSafetyDeposit << 128) | dstSafetyDeposit, timelocks));
     }
 
+    function buildDynamicNonEvmData(
+        bytes32 hashlock,
+        uint256 chainId,
+        address token,
+        uint256 srcSafetyDeposit,
+        uint256 dstSafetyDeposit,
+        Timelocks timelocks,
+        IEscrowFactory.NonEvmMetadata memory orderMetadata
+    ) internal pure returns (bytes memory) {
+        return (abi.encode(hashlock, chainId, token, (srcSafetyDeposit << 128) | dstSafetyDeposit, timelocks, orderMetadata));
+    }
+
     function prepareDataSrc(
         OrderDetails memory orderDetails,
         EscrowDetails memory escrowDetails,
         address factory,
         IOrderMixin limitOrderProtocol
     ) internal returns (SwapData memory swapData) {
-        swapData.extraData = buidDynamicData(
+        swapData.extraData = buildDynamicData(
             escrowDetails.hashlock,
             block.chainid,
             orderDetails.dstToken,
@@ -317,7 +338,7 @@ library CrossChainTestLib {
                 factory,
                 orderDetails.resolverFee,
                 whitelist,
-                bytes1(0x08) | bytes1(0x01), // 0x08 - whitelist length = 1, 0x01 - turn on resolver fee
+                bytes1(0x08) | bytes1(0x00), // 0x08 - whitelist length = 1, 0x01 - turn on resolver fee
                 swapData.extraData
             );
 
@@ -334,7 +355,81 @@ library CrossChainTestLib {
                 escrowDetails.allowMultipleFills,
                 InteractionParams("", "", gettersAmountData, gettersAmountData, "", "", "", postInteractionData),
                 "",
-                0
+                0,
+                false
+            );
+        }
+
+        swapData.orderHash = limitOrderProtocol.hashOrder(swapData.order);
+
+        swapData.immutables = IBaseEscrow.Immutables({
+            orderHash: swapData.orderHash,
+            amount: orderDetails.srcAmount,
+            maker: Address.wrap(uint160(orderDetails.maker)),
+            taker: Address.wrap(uint160(orderDetails.resolvers[0])),
+            token: Address.wrap(uint160(orderDetails.srcToken)),
+            hashlock: escrowDetails.hashlock,
+            safetyDeposit: orderDetails.srcSafetyDeposit,
+            timelocks: escrowDetails.timelocks
+        });
+
+        swapData.srcClone = EscrowSrc(BaseEscrowFactory(factory).addressOfEscrowSrc(swapData.immutables));
+        // 0x08 - whitelist length = 1, 0x01 - turn on resolver fee
+        swapData.extraData = abi.encodePacked(orderDetails.resolverFee, whitelist, bytes1(0x08) | bytes1(0x01), swapData.extraData);
+    }
+
+    function prepareNonEvmDataSrc(
+        OrderDetails memory orderDetails,
+        EscrowDetails memory escrowDetails,
+        address factory,
+        IOrderMixin limitOrderProtocol,
+        IEscrowFactory.NonEvmMetadata memory orderMetadata
+    ) internal returns (SwapData memory swapData) {
+        swapData.extraData = buildDynamicNonEvmData(
+            escrowDetails.hashlock,
+            block.chainid,
+            orderDetails.dstToken,
+            orderDetails.srcSafetyDeposit,
+            orderDetails.dstSafetyDeposit,
+            escrowDetails.timelocks,
+            orderMetadata
+        );
+
+        bytes memory whitelist = abi.encodePacked(uint32(block.timestamp)); // auction start time
+        for (uint256 i = 0; i < orderDetails.resolvers.length; i++) {
+            whitelist = abi.encodePacked(whitelist, uint80(uint160(orderDetails.resolvers[i])), uint16(0)); // resolver address, time delta
+        }
+
+        if (escrowDetails.fakeOrder) {
+            swapData.order = IOrderMixin.Order({
+                salt: 0,
+                maker: Address.wrap(uint160(orderDetails.maker)),
+                receiver: Address.wrap(uint160(orderDetails.receiver)),
+                makerAsset: Address.wrap(uint160(address(orderDetails.srcToken))),
+                takerAsset: Address.wrap(uint160(address(orderDetails.dstToken))),
+                makingAmount: orderDetails.srcAmount,
+                takingAmount: orderDetails.dstAmount,
+                makerTraits: MakerTraits.wrap(0)
+            });
+        } else {
+            bytes memory postInteractionData =
+                abi.encodePacked(factory, orderDetails.resolverFee, whitelist, bytes1(0x08) | bytes1(0x01), swapData.extraData);
+
+            bytes memory gettersAmountData = abi.encodePacked(factory, orderDetails.auctionDetails);
+
+            (swapData.order, swapData.extension) = buildOrder(
+                orderDetails.maker,
+                orderDetails.receiver,
+                orderDetails.srcToken,
+                address(new ERC20True()),
+                orderDetails.srcAmount,
+                orderDetails.dstAmount,
+                MakerTraits.wrap(0),
+                escrowDetails.allowMultipleFills,
+                InteractionParams("", "", gettersAmountData, gettersAmountData, "", "", "", postInteractionData),
+                "",
+                0,
+                true
             );
         }
 
