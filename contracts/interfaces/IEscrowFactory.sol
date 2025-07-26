@@ -14,18 +14,32 @@ import { IBaseEscrow } from "./IBaseEscrow.sol";
  * @custom:security-contact security@1inch.io
  */
 interface IEscrowFactory {
+    struct NonEvmOrderData {
+        bytes dstAddress;
+        bytes dstToken;
+    }
+
     struct ExtraDataArgs {
         bytes32 hashlockInfo; // Hash of the secret or the Merkle tree root if multiple fills are allowed
         uint256 dstChainId;
         Address dstToken;
         uint256 deposits;
         Timelocks timelocks;
+        NonEvmOrderData nonEvmOrderData;
     }
 
     struct DstImmutablesComplement {
         Address maker;
         uint256 amount;
         Address token;
+        uint256 safetyDeposit;
+        uint256 chainId;
+    }
+
+    struct NonEvmDstImmutablesComplement {
+        bytes maker;
+        uint256 amount;
+        bytes token;
         uint256 safetyDeposit;
         uint256 chainId;
     }
@@ -41,6 +55,14 @@ interface IEscrowFactory {
      * @param dstImmutablesComplement Additional immutables related to the escrow contract on the destination chain.
      */
     event SrcEscrowCreated(IBaseEscrow.Immutables srcImmutables, DstImmutablesComplement dstImmutablesComplement);
+
+    /**
+     * @notice Emitted on EscrowSrc deployment to recreate EscrowSrc and EscrowDst immutables off-chain.
+     * @param srcImmutables The immutables of the escrow contract that are used in deployment on the source chain.
+     * @param dstImmutablesComplement Additional immutables related to the escrow contract on the destination chain.
+     */
+    event SrcNonEvmEscrowCreated(IBaseEscrow.Immutables srcImmutables, NonEvmDstImmutablesComplement dstImmutablesComplement);
+
     /**
      * @notice Emitted on EscrowDst deployment.
      * @param escrow The address of the created escrow.
@@ -70,12 +92,16 @@ interface IEscrowFactory {
      * @param immutables The immutable arguments used to compute salt for escrow deployment.
      * @return The computed address of the escrow.
      */
-    function addressOfEscrowSrc(IBaseEscrow.Immutables calldata immutables) external view returns (address);
+    function addressOfEscrowSrc(
+        IBaseEscrow.Immutables calldata immutables
+    ) external view returns (address);
 
     /**
      * @notice Returns the deterministic address of the destination escrow based on the salt.
      * @param immutables The immutable arguments used to compute salt for escrow deployment.
      * @return The computed address of the escrow.
      */
-    function addressOfEscrowDst(IBaseEscrow.Immutables calldata immutables) external view returns (address);
+    function addressOfEscrowDst(
+        IBaseEscrow.Immutables calldata immutables
+    ) external view returns (address);
 }

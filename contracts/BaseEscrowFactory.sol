@@ -9,7 +9,7 @@ import { Address, AddressLib } from "solidity-utils/contracts/libraries/AddressL
 import { SafeERC20 } from "solidity-utils/contracts/libraries/SafeERC20.sol";
 
 import { IOrderMixin } from "limit-order-protocol/contracts/interfaces/IOrderMixin.sol";
-import { MakerTraitsLib } from "limit-order-protocol/contracts/libraries/MakerTraitsLib.sol";
+import { MakerTraitsLib, MakerTraits } from "limit-order-protocol/contracts/libraries/MakerTraitsLib.sol";
 import { ResolverValidationExtension } from "limit-order-settlement/contracts/extensions/ResolverValidationExtension.sol";
 
 import { ImmutablesLib } from "./libraries/ImmutablesLib.sol";
@@ -27,6 +27,8 @@ import { MerkleStorageInvalidator } from "./MerkleStorageInvalidator.sol";
  * @custom:security-contact security@1inch.io
  */
 abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtension, MerkleStorageInvalidator {
+    uint256 internal constant _NON_EVM_ORDER_FLAG = 1 << 253;
+
     using AddressLib for Address;
     using Clones for address;
     using ImmutablesLib for IBaseEscrow.Immutables;
@@ -73,7 +75,6 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
         }
 
         bytes32 hashlock;
-
         if (MakerTraitsLib.allowMultipleFills(order.makerTraits)) {
             uint256 partsAmount = uint256(extraDataArgs.hashlockInfo) >> 240;
             if (partsAmount < 2) revert InvalidSecretsAmount();
@@ -98,15 +99,28 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
             timelocks: extraDataArgs.timelocks.setDeployedAt(block.timestamp)
         });
 
-        DstImmutablesComplement memory immutablesComplement = DstImmutablesComplement({
-            maker: order.receiver.get() == address(0) ? order.maker : order.receiver,
-            amount: takingAmount,
-            token: extraDataArgs.dstToken,
-            safetyDeposit: extraDataArgs.deposits & type(uint128).max,
-            chainId: extraDataArgs.dstChainId
-        });
+        if (MakerTraits.unwrap(order.makerTraits) & _NON_EVM_ORDER_FLAG != 0) {
+            NonEvmDstImmutablesComplement memory immutablesComplement = NonEvmDstImmutablesComplement({
+                maker: extraDataArgs.nonEvmOrderData.dstAddress,
+                amount: takingAmount,
+                token: extraDataArgs.nonEvmOrderData.dstToken,
+                // this is always assumed to be in the native token of the dst chain
+                safetyDeposit: extraDataArgs.deposits & type(uint128).max,
+                chainId: extraDataArgs.dstChainId
+            });
 
-        emit SrcEscrowCreated(immutables, immutablesComplement);
+            emit SrcNonEvmEscrowCreated(immutables, immutablesComplement);
+        } else {
+            DstImmutablesComplement memory immutablesComplement = DstImmutablesComplement({
+                maker: order.receiver.get() == address(0) ? order.maker : order.receiver,
+                amount: takingAmount,
+                token: extraDataArgs.dstToken,
+                safetyDeposit: extraDataArgs.deposits & type(uint128).max,
+                chainId: extraDataArgs.dstChainId
+            });
+
+            emit SrcEscrowCreated(immutables, immutablesComplement);
+        }
 
         bytes32 salt = immutables.hashMem();
         address escrow = _deployEscrow(salt, 0, ESCROW_SRC_IMPLEMENTATION);
@@ -143,14 +157,18 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
     /**
      * @notice See {IEscrowFactory-addressOfEscrowSrc}.
      */
-    function addressOfEscrowSrc(IBaseEscrow.Immutables calldata immutables) external view virtual returns (address) {
+    function addressOfEscrowSrc(
+        IBaseEscrow.Immutables calldata immutables
+    ) external view virtual returns (address) {
         return Create2.computeAddress(immutables.hash(), _PROXY_SRC_BYTECODE_HASH);
     }
 
     /**
      * @notice See {IEscrowFactory-addressOfEscrowDst}.
      */
-    function addressOfEscrowDst(IBaseEscrow.Immutables calldata immutables) external view virtual returns (address) {
+    function addressOfEscrowDst(
+        IBaseEscrow.Immutables calldata immutables
+    ) external view virtual returns (address) {
         return Create2.computeAddress(immutables.hash(), _PROXY_DST_BYTECODE_HASH);
     }
 
