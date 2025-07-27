@@ -18,7 +18,7 @@ import { Timelocks, TimelocksLib } from "./libraries/TimelocksLib.sol";
 
 import { IEscrowFactory } from "./interfaces/IEscrowFactory.sol";
 import { IBaseEscrow } from "./interfaces/IBaseEscrow.sol";
-import { RESOLVER_VALIDATION_DATA_LENGTH } from "./EscrowFactoryContext.sol";
+import { SRC_IMMUTABLES_LENGTH } from "./EscrowFactoryContext.sol";
 import { MerkleStorageInvalidator } from "./MerkleStorageInvalidator.sol";
 
 /**
@@ -65,20 +65,14 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
         uint256 remainingMakingAmount,
         bytes calldata extraData
     ) internal override(ResolverValidationExtension) {
+        uint256 superArgsLength = extraData.length - SRC_IMMUTABLES_LENGTH;
         super._postInteraction(
-            order,
-            extension,
-            orderHash,
-            taker,
-            makingAmount,
-            takingAmount,
-            remainingMakingAmount,
-            extraData[:RESOLVER_VALIDATION_DATA_LENGTH]
+            order, extension, orderHash, taker, makingAmount, takingAmount, remainingMakingAmount, extraData[:superArgsLength]
         );
 
         ExtraDataArgs calldata extraDataArgs;
         assembly ("memory-safe") {
-            extraDataArgs := add(extraData.offset, RESOLVER_VALIDATION_DATA_LENGTH)
+            extraDataArgs := add(extraData.offset, superArgsLength)
         }
 
         bytes32 hashlock;
@@ -106,7 +100,8 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
             timelocks: extraDataArgs.timelocks.setDeployedAt(block.timestamp)
         });
 
-        if (MakerTraits.unwrap(order.makerTraits) & _NON_EVM_ORDER_FLAG != 0) {
+        // check via flag or param, too lazy to edit 1inch sdk to allow adding custom MakerTraits
+        if (MakerTraits.unwrap(order.makerTraits) & _NON_EVM_ORDER_FLAG != 0 || extraDataArgs.nonEvmMetadata.dstAddressRaw != bytes32(0)) {
             NonEvmDstImmutablesComplement memory immutablesComplement = NonEvmDstImmutablesComplement({
                 maker: extraDataArgs.nonEvmMetadata.dstAddressRaw,
                 amount: takingAmount,
