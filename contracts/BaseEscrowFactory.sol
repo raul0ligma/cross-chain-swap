@@ -105,7 +105,7 @@ abstract contract BaseEscrowFactory is IEscrowFactory, ResolverValidationExtensi
             NonEvmDstImmutablesComplement memory immutablesComplement = NonEvmDstImmutablesComplement({
                 maker: extraDataArgs.nonEvmMetadata.dstAddressRaw,
                 amount: takingAmount,
-                token: extraDataArgs.nonEvmMetadata.dstAddressRaw,
+                token: extraDataArgs.nonEvmMetadata.dstTokenRaw,
                 // this is always assumed to be in the native token of the dst chain
                 safetyDeposit: extraDataArgs.deposits & type(uint128).max,
                 chainId: extraDataArgs.dstChainId
